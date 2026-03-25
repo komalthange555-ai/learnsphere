@@ -1,83 +1,126 @@
-<script type="module">
-    import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2';
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LearnSphere | AI Study Hub</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+</head>
+<body class="bg-slate-50 h-screen flex flex-col font-sans">
 
-    // Optimization: Use a faster, smarter Text-Generation model
-    env.allowLocalModels = false;
-    
-    const chatWindow = document.getElementById('chat-window');
-    const chatInput = document.getElementById('chat-input');
-    const sendBtn = document.getElementById('send-btn');
-    const status = document.getElementById('status');
+    <nav class="bg-white border-b px-6 py-3 flex justify-between items-center shadow-sm">
+        <div class="flex items-center gap-2">
+            <span class="text-xl font-bold text-indigo-600">LearnSphere</span>
+        </div>
+        <div id="status" class="text-xs font-mono text-slate-400">System Ready</div>
+    </nav>
 
-    let knowledgeBase = "";
-    let generator = null;
+    <div id="loader" class="fixed inset-0 bg-white z-50 flex flex-col items-center justify-center transition-opacity duration-500">
+        <div class="w-12 h-12 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mb-4"></div>
+        <p class="text-slate-600 font-medium">Starting LearnSphere Engine...</p>
+        <p id="load-progress" class="text-xs text-slate-400 mt-2">Checking Browser Compatibility...</p>
+    </div>
 
-    async function initAI() {
-        if (generator) return;
-        status.innerText = "🧠 Loading Smart Engine (Wait 30s)...";
-        try {
-            // Switching to a text-generation model that understands instructions
-            generator = await pipeline('text-generation', 'Xenova/LaMini-Flan-T5-78M', {
-                quantized: true,
-                progress_callback: (p) => {
-                    status.innerText = `Brain Loading: ${Math.round(p.loaded / p.total * 100)}%`;
-                }
-            });
-            status.innerText = "LearnSphere: Smart Mode";
+    <main class="flex-1 flex overflow-hidden">
+        <aside class="w-64 bg-white border-r p-4 hidden md:flex flex-col gap-4">
+            <div class="space-y-2">
+                <p class="text-[10px] font-bold text-slate-400 uppercase">Upload Source</p>
+                <input type="file" id="upload-pdf" accept=".pdf" class="text-xs block w-full file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:bg-indigo-50 file:text-indigo-700">
+            </div>
+            <div id="file-list" class="text-sm text-slate-500 italic mt-4">No files uploaded.</div>
+        </aside>
+
+        <section class="flex-1 flex flex-col bg-white">
+            <div id="chat-window" class="flex-1 overflow-y-auto p-6 space-y-4">
+                <div class="bg-indigo-50 p-4 rounded-lg text-sm text-indigo-800">
+                    Welcome! Upload a PDF to start. The first time you ask a question, I will download the AI model (~80MB).
+                </div>
+            </div>
+            <div class="p-4 border-t flex gap-2">
+                <input type="text" id="chat-input" class="flex-1 border rounded-lg px-4 py-2 outline-none focus:ring-2 focus:ring-indigo-500" placeholder="Ask about your document..." disabled>
+                <button id="send-btn" class="bg-indigo-600 text-white px-4 py-2 rounded-lg disabled:opacity-20" disabled>Ask</button>
+            </div>
+        </section>
+    </main>
+
+    <script type="module">
+        // Use a more stable CDN link for GitHub Pages
+        import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2';
+
+        // SECURITY & PERFORMANCE CONFIG
+        env.allowLocalModels = false; 
+        env.useBrowserCache = true;
+
+        const loader = document.getElementById('loader');
+        const chatInput = document.getElementById('chat-input');
+        const sendBtn = document.getElementById('send-btn');
+        const status = document.getElementById('status');
+        const chatWindow = document.getElementById('chat-window');
+
+        let knowledgeBase = "";
+        let pipe = null;
+
+        // Remove the loader once the script is initialized
+        window.addEventListener('load', () => {
+            loader.style.opacity = '0';
+            setTimeout(() => loader.style.display = 'none', 500);
+        });
+
+        async function initAI() {
+            if (pipe) return;
+            status.innerText = "Loading AI Core...";
+            // Fast & Tiny model for low-end student laptops
+            pipe = await pipeline('text2text-generation', 'Xenova/LaMini-Flan-T5-78M');
+            status.innerText = "LearnSphere Online";
             chatInput.disabled = false;
-        } catch (e) {
-            status.innerText = "Error: Check connection";
+            sendBtn.disabled = false;
         }
-    }
 
-    // PDF/Image Text Collector (Same as before but cleaner)
-    window.addToKnowledge = (name, text) => {
-        knowledgeBase += ` Document [${name}]: ${text} `;
-        appendMessage('ai', `I have indexed **${name}**. You can now ask specific questions!`);
-        initAI();
-    };
-
-    sendBtn.addEventListener('click', async () => {
-        const query = chatInput.value.trim();
-        if (!query || !knowledgeBase) return;
-
-        appendMessage('user', query);
-        chatInput.value = "";
-        status.innerText = "Searching notes...";
-
-        // THE FIX: "Prompt Engineering"
-        // We wrap your question in instructions so the AI doesn't hallucinate.
-        const smartPrompt = `Context: ${knowledgeBase.substring(0, 1500)} 
-        Question: ${query} 
-        Answer based ONLY on the context above. If not found, say "Not in notes".
-        Answer:`;
-
-        setTimeout(async () => {
-            try {
-                const output = await generator(smartPrompt, { 
-                    max_new_tokens: 150, 
-                    temperature: 0.2, // Low temperature = more accurate, less "creative"
-                    repetition_penalty: 1.2 
-                });
-                
-                // Clean up the response to remove the prompt part
-                let response = output[0].generated_text.split("Answer:").pop().trim();
-                appendMessage('ai', response || "I couldn't find a clear answer in the notes.");
-            } catch (err) {
-                appendMessage('ai', "My brain is full! Try a smaller PDF.");
+        // PDF Processing
+        document.getElementById('upload-pdf').addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            status.innerText = "Processing PDF...";
+            const arrayBuffer = await file.arrayBuffer();
+            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+            const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
+            
+            let text = "";
+            for(let i=1; i<=Math.min(pdf.numPages, 5); i++) { // Limit to 5 pages for speed
+                const page = await pdf.getPage(i);
+                const content = await page.getTextContent();
+                text += content.items.map(s => s.str).join(" ") + " ";
             }
-            status.innerText = "LearnSphere: Ready";
-        }, 100);
-    });
+            
+            knowledgeBase = text;
+            document.getElementById('file-list').innerText = "✅ " + file.name;
+            initAI(); // Start loading AI after upload
+            appendMsg('ai', `Read **${file.name}**. What should I look for?`);
+        });
 
-    function appendMessage(role, text) {
-        const div = document.createElement('div');
-        div.className = `flex ${role === 'user' ? 'justify-end' : 'justify-start'} mb-4`;
-        const inner = document.createElement('div');
-        inner.className = `max-w-[85%] px-4 py-3 rounded-2xl text-sm ${role === 'user' ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 border border-slate-200 text-slate-800'}`;
-        inner.innerText = text;
-        div.appendChild(inner);
-        chatWindow.appendChild(div);
-        chatWindow.scrollTop = chatWindow.scrollHeight;
-    }
-</script>
+        sendBtn.addEventListener('click', async () => {
+            const val = chatInput.value;
+            appendMsg('user', val);
+            chatInput.value = "";
+            status.innerText = "AI is thinking...";
+
+            const prompt = `Context: ${knowledgeBase.substring(0, 1500)} Question: ${val} Answer:`;
+            const out = await pipe(prompt, { max_new_tokens: 100 });
+            
+            appendMsg('ai', out[0].generated_text);
+            status.innerText = "Ready";
+        });
+
+        function appendMsg(role, txt) {
+            const d = document.createElement('div');
+            d.className = `p-3 rounded-lg text-sm ${role === 'user' ? 'bg-indigo-600 text-white self-end ml-auto' : 'bg-slate-100 text-slate-800'}`;
+            d.style.maxWidth = '80%';
+            d.innerText = txt;
+            chatWindow.appendChild(d);
+            chatWindow.scrollTop = chatWindow.scrollHeight;
+        }
+    </script>
+</body>
+</html>
